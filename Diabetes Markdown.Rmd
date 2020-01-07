@@ -66,7 +66,7 @@ The data analyzed here has been sourced from the UCI Machine learning repository
 "The dataset consists of features extracted from the Messidor image set to predict whether an image contains signs of diabetic retinopathy or not." - UCI Machine Learning Repository
 
 ## Data Dictionary
-```{r DataDictionary Load, echo = TRUE}
+```{r DataDictionary Load, echo = TRUE, warning=FALSE}
 #This pulls in another CSV which specifies the data dictionary
 dd <- read.csv("data/data_dictionary.csv")
 

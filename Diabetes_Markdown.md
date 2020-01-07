@@ -38,11 +38,6 @@ kable(dd,
                 position = "center")
 ```
 
-    ## Warning in kable_styling(., bootstrap_option = "striped", position =
-    ## "center"): Please specify format in kable. kableExtra can customize either
-    ## HTML or LaTeX outputs. See https://haozhu233.github.io/kableExtra/ for
-    ## details.
-
 | Col \# | Variable                             | Description                                                           | Type                                                                            |
 | :----- | :----------------------------------- | :-------------------------------------------------------------------- | :------------------------------------------------------------------------------ |
 | 1      | Quality Assessment                   |                                                                       | integer; 0 = bad quality, 1 = sufficient quality                                |
