@@ -1,0 +1,9 @@
+num,  Attribute ,Description,type
+1,Quality Assessment,,"integer; 0 = bad quality, 1 = sufficient quality"
+2,Pre-Screening Result,,"integer; 0 = lack of severe retinal abnormality, 1 = severe retinal abnormality"
+3-8,Results of MA Detection,Number of microaneurysms founds at different confidence intervals,Integer
+9-16,Exudate,Number of lesions divided by diameter or ROI,Numeric
+17,Distance – Center of Macula,Distance from center of macula to center of optic disc divided by ROI,Continuous
+18,Diameter – Optic Disc,,Continuous
+19,AM/FM Classification,,Binary
+19,Class label for diabetic retinopathy,Tells us if there is signs of DR,Binary

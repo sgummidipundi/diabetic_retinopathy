@@ -1,0 +1,519 @@
+---
+title: "Characterization and Classification of Diabetic Retinopathy"
+author: "Santosh Gummidipundi"
+date: "1/7/2020"
+output:
+  github_document:
+    toc: true
+    toc_depth: 2
+    dev: png
+---
+
+```{r Set Options, echo = FALSE}
+options(knitr.kable.NA = '') #Sets default value for NA values in kable package which outputs tables in HTML
+formatSet = "markdown" #Sets the default format to html. This can be changed to latex if we're generating a PDF instead
+seed <- 117 #Sets the seed prior to any and all random events for reproducability
+```
+
+```{r Optional Package install, echo = FALSE}
+# install.packages(c("randomForest",
+#                    "e1071",
+#                    "foreign",
+#                    "dplyr",
+#                    "knitr",
+#                    "kableExtra",
+#                    "desctable",
+#                    "devtools",
+#                    "tidyr",
+#                    "ggplot2",
+#                    "caret",
+#                    "caTools",
+#                    "gbm",
+#                    "klaR",
+#                    "neuralnet",
+#                    "xgboost",
+#                    "randomForest"))
+```
+
+```{r Library Loads, echo = FALSE, warning = FALSE, message = FALSE}
+library(foreign)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(desctable)
+library(devtools)
+library(tidyr)
+library(ggplot2)
+library(caret)
+library(caTools)
+library(neuralnet)
+```
+
+```{r Custom Functions Load, echo = FALSE, message = FALSE}
+#This pulls in some common functions I use for cleaning and describing data
+source_url("https://raw.githubusercontent.com/sgummidipundi/sgummidipundi_r/master/clean_dataset.R")
+source_url("https://raw.githubusercontent.com/sgummidipundi/sgummidipundi_r/master/describe.R")
+
+yes_no <- function(x) {factor(x, levels = c(1,0), labels = c("Yes","No"))}
+```
+
+
+
+# Dataset Information
+
+The data analyzed here has been sourced from the UCI Machine learning repository. https://archive.ics.uci.edu/ml/datasets/Diabetic+Retinopathy+Debrecen+Data+Set. 
+
+"The dataset consists of features extracted from the Messidor image set to predict whether an image contains signs of diabetic retinopathy or not." - UCI Machine Learning Repository
+
+## Data Dictionary
+```{r DataDictionary Load, echo = TRUE}
+#This pulls in another CSV which specifies the data dictionary
+dd <- read.csv("data/data_dictionary.csv")
+
+kable(dd, 
+      format = formatSet,
+      col.names = c("Col #","Variable","Description","Type"),
+      booktabs = TRUE) %>%
+  kable_styling(bootstrap_option = "striped",
+                position = "center")
+  
+```
+
+
+```{r Data Load, echo = TRUE}
+#Read in data
+df <- read.arff("data/messidor_features-1.arff")
+```
+
+```{r Data Processing, echo = TRUE}
+#Set column names because there is no header in this data
+colnames(df) <- c("quality",
+                  "pre_screen",
+                  "ma_1",
+                  "ma_2",
+                  "ma_3",
+                  "ma_4",
+                  "ma_5",
+                  "ma_6",
+                  "ex_1",
+                  "ex_2",
+                  "ex_3",
+                  "ex_4",
+                  "ex_5",
+                  "ex_6",
+                  "ex_7",
+                  "ex_8",
+                  "dist",
+                  "diam",
+                  "am_fm",
+                  "class")
+
+#Create a copy of the data for later use in model training and testing
+df_copy <- df
+
+#Change attributes for variables for use in descriptive analyses
+df <- df %>%
+      mutate_if(names(.) %in% c("quality","pre_screen","am_fm","class"), yes_no) 
+
+#These variable dictionaries will be used in creating table 1
+numeric_labels <- c("ma_1" = "alpha = 0.5",
+                    "ma_2" = "alpha = 0.6",
+                    "ma_3" = "alpha = 0.7",
+                    "ma_4" = "alpha = 0.8",
+                    "ma_5" = "alpha = 0.9",
+                    "ma_6" = "alpha = 1.0",
+                    "ex_1" = "alpha = 0.3",
+                    "ex_2" = "alpha = 0.4",
+                    "ex_3" = "alpha = 0.5",
+                    "ex_4" = "alpha = 0.6",
+                    "ex_5" = "alpha = 0.7",
+                    "ex_6" = "alpha = 0.8",
+                    "ex_7" = "alpha = 0.9",
+                    "ex_8" = "alpha = 1.0",
+                    "dist" = "Distance – Center of Macula",
+                    "diam" = "Diameter – Optic Disc")
+
+categorical_labels <- c("am_fm" = "AM/FM Classification",
+                        "quality" = "Quality Assessment",
+                        "pre_screen" = "Pre-Screening Result")
+
+```
+
+# Objective
+
+The objective of this analysis is to describe and characterize the image features extracted from the Messidor image set in addition to performing an array of ML models to predict whether a patient has diabetic retinopathy.
+
+# Descriptive Analyses
+
+Ordinarily, a study of predictive nature a descriptive analyses should not be performed for on a whole dataset and rather just the training dataset. However, for the purposes of this demonstration of programming and reproducibility it will be performed.
+
+## Table 1
+
+```{r DA - Table 1, echo = TRUE, results = 'asis', warning = FALSE, message = FALSE}
+#This creates a very basic table 1 plot for getting an overview of predictors and class balance.
+#Summaries for overall group
+summary_numeric <- df %>%
+                   select_if(is.numeric) %>%
+                   desctable(stats =  list("N" = length,
+                                           "% or Mean (SD)" = is.numeric ~ mean_sd),
+                   labels = numeric_labels) %>%
+                   as.data.frame
+
+summary_cat <- df %>%
+               select(-class) %>%
+               select_if(is.factor) %>%
+               desctable(stats =  list("N" = length,
+                                       "% or Mean (SD)" = is.factor ~ percent),
+               labels = categorical_labels) %>%
+               as.data.frame %>%
+               mutate_if(is.numeric, funs(round(., digits = 1)))
+
+summary <- rbind(summary_numeric, summary_cat) 
+colnames(summary)[1] <- "var"
+
+
+#Summaries stratified by class
+summary_numeric_class <- df %>%
+                         group_by(class) %>%
+                         select_if(is.numeric) %>%
+                         desctable(stats =  list("N" = length,
+                                                 "% or Mean (SD)" = is.numeric ~ mean_sd),
+                         labels = numeric_labels) %>%
+                         as.data.frame
+
+summary_cat_class <- df %>%
+                     select_if(is.factor) %>%
+                     group_by(class) %>%
+                     desctable(stats =  list("N" = length,
+                                             "% or Mean (SD)" = is.factor ~ percent),
+                     labels = categorical_labels) %>%
+                     as.data.frame %>%
+                     mutate_if(is.numeric, funs(round(., digits = 1)))
+
+summary_class <- rbind(summary_numeric_class, summary_cat_class)
+colnames(summary_class)[1] <- "var"
+
+
+
+summary <- cbind(summary, summary_class %>% select(-var))
+summary$var <- gsub(".*:","",summary$var, perl = TRUE)
+
+
+           
+y <- kable(summary,
+           format = "html",
+           booktabs = TRUE,
+           col.names = c(" ","N","%","N","%","N","%","p-value","test"),
+           align = c("l",rep("c",8)),
+           caption = "Table 1") %>%
+    add_header_above(header = c(" " = 1, " " = 2, "DR Positive (n = 611)" = 2, "DR Negative (n = 540)" = 2,"Tests" = 2), align = "c") %>%
+    add_header_above(header = c(" " = 1, "Overall" = 2, "Stratified" = 6), align = "c") %>%
+    kable_styling(full_width = TRUE) %>%
+    group_rows("Microaneurysms",1,6) %>%
+    group_rows("Exudate Pixels",7,14) %>%
+    group_rows("Quality Assessment",17,19) %>%
+    group_rows("Pre-Screening Result",20,22) %>%
+    group_rows("AM/FM Classification",23,25) %>%
+    
+
+print(y)
+```
+
+## Descriptive Plots
+
+```{r DA Plots, echo = TRUE}
+#This section details select graphical plots for variables of interest
+#----------------------------Mean Exudates/ROI-------------------------------#
+df_summary <- df %>%
+              select(starts_with("ex"),"class") %>%
+              group_by(class) %>%
+              summarize_all(mean) %>%
+              gather(ex, value, ex_1:ex_8)
+df_summary$ex <- factor(df_summary$ex,
+                        levels = c("ex_1",
+                                   "ex_2",
+                                   "ex_3",
+                                   "ex_4",
+                                   "ex_5",
+                                   "ex_6",
+                                   "ex_7",
+                                   "ex_8"),
+                        labels = seq(0.3,1.0,0.1))
+              
+plot <- ggplot(df_summary,
+               aes(x = ex,
+                   y = value,
+                   fill = ex)) +
+        geom_bar(position = "dodge",
+                 stat = "identity",
+                 aes(y = value,
+                     x = factor(ex))) +
+        theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+              legend.position = "none") +
+        xlab("CI Alpha") +
+        ylab("Mean Exudate/ROI") +
+        ggtitle("Mean Exudate/ROI Stratified by Diabetic Retinopathy Outcome") +
+  facet_grid(class ~ .)
+plot
+
+#----------------------------Mean Microaneurysms-------------------------------#
+df_summary <- df %>%
+              select(starts_with("ma"),"class") %>%
+              group_by(class) %>%
+              summarize_all(mean) %>%
+              gather(ma, value, ma_1:ma_6)
+df_summary$ma <- factor(df_summary$ma,
+                        levels = c("ma_1",
+                                   "ma_2",
+                                   "ma_3",
+                                   "ma_4",
+                                   "ma_5",
+                                   "ma_6"),
+                        labels = seq(0.5,1.0,0.1))
+              
+plot <- ggplot(df_summary,
+               aes(x = ma,
+                   y = value,
+                   fill = ma)) +
+        geom_bar(position = "dodge",
+                 stat = "identity",
+                 aes(y = value,
+                     x = factor(ma))) +
+        theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+              legend.position = "none") +
+        xlab("CI Alpha") +
+        ylab("Mean Microaneurysms") +
+        ggtitle("Mean Microaneurysms Stratified by Diabetic Retinopathy Outcome") +
+  facet_grid(class ~ .)
+plot
+
+#-------------------AM/FM Classification---------------------------------#
+df_summary <- df %>%
+              select("am_fm","class") %>%
+              mutate(am_fm = as.character(am_fm)) %>%
+              group_by(class, am_fm) %>%
+              tally %>%
+              mutate(sum = sum(n)) %>%
+              mutate(f = n/sum, am_fm = factor(am_fm, levels = c("Yes","No"), labels = c("AM","FM")))
+
+plots <- ggplot(df_summary,
+                aes(x = factor(am_fm),
+                    weight = f,
+                    fill = class)) +
+         geom_bar(position = "dodge",
+                  stat = "identity",
+                  aes(y = f,
+                      x = factor(am_fm))) +
+        theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+              legend.position = "none") +
+        facet_grid(class ~., scales = "free") +
+        xlab("AM/FM Classification") +
+        ylab("Proportion") +
+        ggtitle("Proportion AM/FM Stratified by Diabetic Retinopathy Outcome") +
+        scale_y_continuous(limits = c(0,1))
+plots
+
+
+#-------------------Pre-Screening Result---------------------------------#
+df_summary <- df %>%
+              select("pre_screen","class") %>%
+              mutate(am_fm = as.character(pre_screen)) %>%
+              group_by(class, pre_screen) %>%
+              tally %>%
+              mutate(sum = sum(n)) %>%
+              mutate(f = n/sum, pre_screen = factor(pre_screen, levels = c("Yes","No"), labels = c("Severe Retinoabnormality","None")))
+
+plots <- ggplot(df_summary,
+                aes(x = factor(pre_screen),
+                    weight = f,
+                    fill = class)) +
+         geom_bar(position = "dodge",
+                  stat = "identity",
+                  aes(y = f,
+                      x = factor(pre_screen))) +
+        theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+              legend.position = "none") +
+        facet_grid(class ~., scales = "free") +
+        xlab("Severe Retinoabnormality") +
+        ylab("Proportion") +
+        ggtitle("Proportion with Severe Retinoabnormality Stratified by Diabetic Retinopathy Outcome") +
+        scale_y_continuous(limits = c(0,1))
+plots
+
+```
+
+# Predictions
+
+A train-test set is created by random shuffling and a 75/25 split.
+
+```{r Split, echo = TRUE, message=FALSE}
+set.seed(seed)
+index <- sample(seq(1,nrow(df_copy)))
+df_copy <- df_copy[index,]
+
+df_copy$split <- sample.split(df_copy$ex_4, SplitRatio = 0.75)
+
+train <- df_copy %>% 
+         filter(split == TRUE) %>% 
+         select(-split, -quality)
+
+test <- df_copy %>% 
+        filter(split == FALSE) %>% 
+        select(-split, -quality)
+```
+
+## Feature Selection
+
+```{r Feature Selection, echo = TRUE, message=FALSE, cache = TRUE}
+set.seed(seed)
+#Create an object to specify details of model selection
+control <- rfeControl(functions = rfFuncs,
+                      method = "repeatedcv",
+                      number = 5,
+                      repeats = 3)
+
+results <- rfe(x = train[,c(1:18)],
+               y = train[,19],
+               sizes = c(1:18),
+               rfeControl = control)
+results
+
+#Predictors to use for model training and testing
+predictors <- c("ma_1", "ex_7", "ma_2", "ex_1", "ex_8")
+```
+
+From this we found the top 5 variables to be:
+
+1. Microaneurysm, alpha = 0.5
+2. Microaneurysm, alpha = 0.6
+3. Exudates/ROI, alpha = 0.3
+4. Exudates/ROI, alpha = 0.9
+5. Exudates/ROI, alpha = 1.0
+
+## Model Training
+
+From here, we train several select models using the above predictors.
+
+```{r Model Training, echo = TRUE, message=FALSE}
+#Create a control object to specify training details
+control <- trainControl(method = 'cv',
+                        number = 3,
+                        returnResamp = "none",
+                        summaryFunction = twoClassSummary,
+                        classProbs = TRUE)
+
+```
+
+### Logistic Regression
+
+```{r Logistic Regression, echo=FALSE, warning=FALSE}
+set.seed(seed)
+#Fit Logistic Regression
+lr <- train(train[,predictors], train[,"class"],
+            method = "glm",
+            family = "binomial",
+            tuneLength = 10)
+
+#Caclulate confusion matrix for predictions
+confusionMatrix(data = predict(lr, test),
+                reference = test$class)
+
+```
+
+### Random Forest
+```{r RandomForest, echo = TRUE, warning=FALSE}
+set.seed(seed)
+#Train Random Forest
+rf <- train(train[,predictors], factor(train[,"class"], levels = c(1,0), labels = c("yes","no")),
+                 method = "rf",
+                 trControl = control,
+                 metric = "ROC",
+                 preProc = c("center","scale"),
+                 tuneLength = 3)
+
+#Caclulate confusion matrix for predictions
+confusionMatrix(data = predict(rf, test),
+                reference = factor(test$class, levels = c(1,0), labels = c("yes","no")))
+
+```
+
+### Gradient Boosted Trees
+```{r GBM - 1, echo = TRUE, message = FALSE, warning=FALSE}
+set.seed(seed)
+#Train gradient boosted machines
+gbm <- train(train[,predictors], factor(train[,"class"], levels = c(1,0), labels = c("yes","no")),
+             method = "gbm",
+             trControl = control,
+             metric = "ROC",
+             preProc = c("center","scale"),
+             tuneLength = 3,
+             verbose = FALSE)
+```
+
+```{r GBM - 2, echo = TRUE, warning=FALSE}
+#Caclulate confusion matrix for predictions
+confusionMatrix(data = predict(gbm, test),
+                reference = factor(test$class, levels = c(1,0), labels = c("yes","no")))
+```
+
+
+### k-Nearest Neighbors
+```{r KNN, echo = TRUE, warning=FALSE}
+set.seed(seed)
+#Train KNN
+knn <- train(train[,predictors], factor(train[,"class"], levels = c(1,0), labels = c("yes","no")),
+             method = "knn",
+             trControl = control,
+             metric = "ROC",
+             preProcess = c("center","scale"),
+             tuneLength = 3)
+
+#Caclulate confusion matrix for predictions
+confusionMatrix(data = predict(knn, test),
+                reference = factor(test$class, levels = c(1,0), labels = c("yes","no")))
+
+```
+
+### Naive Bayes
+```{r NB - 1, echo = TRUE, message = FALSE, warning=FALSE}
+set.seed(seed)
+#Train Naive Bayes
+nb <- train(train[,predictors], factor(train[,"class"], levels = c(1,0), labels = c("yes","no")),
+            method = "nb",
+            tuneLength = 3,
+            preProcess = c("center","scale"),
+            trControl = control,
+            verbose = FALSE)
+```
+
+```{r NB - 2, echo = TRUE, warning=FALSE}
+#Caclulate confusion matrix for predictions
+confusionMatrix(data = predict(nb, test),
+                reference = factor(test$class, levels = c(1,0), labels = c("yes","no")))
+
+```
+
+
+### Neural Network
+
+```{r Neural Network - 1, echo = TRUE, message=FALSE, warning=FALSE}
+set.seed(seed)
+#Train Neural Network
+anNet <- train(train[,predictors], factor(train[,"class"], levels = c(1,0), labels = c("yes","no")),
+            method = "nnet",
+            tuneLength = 3,
+            preProcess = c("center","scale"),
+            trControl = control,
+            verbose = FALSE)
+```
+
+```{r Neural Network - 2, echo = TRUE, warning=FALSE}
+#Caclulate confusion matrix for predictions
+confusionMatrix(data = predict(anNet, test),
+                reference = factor(test$class, levels = c(1,0), labels = c("yes","no")))
+```
+
+
+# Results
+
+Based on these results, we find that the model best suited for accurate predictions of Diabetic Retinopathy is the Neural Network.
